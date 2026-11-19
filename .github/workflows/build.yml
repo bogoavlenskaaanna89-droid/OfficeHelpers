@@ -11,10 +11,10 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout repository
+      - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Setup Python
+      - name: Install Python on GitHub runner (not on user's PC)
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -26,16 +26,39 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Package single EXE
+      - name: Check source and Qt imports
+        shell: pwsh
+        run: |
+          python -m py_compile main.py
+          python -c "from PyQt5.QtCore import QTimer; from PyQt5.QtGui import QPixmap; from PyQt5.QtWidgets import QApplication; print('Qt imports OK')"
+          python main.py --diagnose
+
+      - name: Build main Windows EXE (single file, no console)
         shell: pwsh
         run: |
           python -m PyInstaller --clean --noconfirm --onefile --noconsole --name OfficeHelpers main.py
           if (!(Test-Path 'dist/OfficeHelpers.exe')) { throw 'EXE was not created' }
 
-      - name: Upload OfficeHelpers.exe
+      - name: Build optional diagnostic Windows EXE (with console)
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --onefile --console --name OfficeHelpers-Diagnostic main.py
+          if (!(Test-Path 'dist/OfficeHelpers-Diagnostic.exe')) { throw 'Diagnostic EXE was not created' }
+          & '.\dist\OfficeHelpers-Diagnostic.exe' --diagnose
+          if ($LASTEXITCODE -ne 0) { throw 'Diagnostic EXE failed to start' }
+
+      - name: Upload normal EXE
         uses: actions/upload-artifact@v4
         with:
           name: OfficeHelpers-Windows
           path: dist/OfficeHelpers.exe
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload diagnostic EXE (only for troubleshooting)
+        uses: actions/upload-artifact@v4
+        with:
+          name: OfficeHelpers-Diagnostic
+          path: dist/OfficeHelpers-Diagnostic.exe
           if-no-files-found: error
           retention-days: 30
